@@ -9,87 +9,74 @@ from typing import Optional
 import config
 
 
-def init_db():
+def init_db() -> str:
     """初始化數據庫，創建必要的表格"""
     os.makedirs(config.STORAGE_DIR, exist_ok=True)
 
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
+    with sqlite3.connect(config.DB_PATH) as conn:
+        cursor = conn.cursor()
 
-    # 創建 sessions 表
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            url TEXT,
-            started_at TEXT NOT NULL,
-            ended_at TEXT,
-            status TEXT DEFAULT 'running'
-        )
-    """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                url TEXT,
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                status TEXT DEFAULT 'running'
+            )
+        """)
 
-    # 創建 actions 表
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS actions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id INTEGER NOT NULL,
-            timestamp TEXT NOT NULL,
-            action_type TEXT NOT NULL,
-            selector TEXT,
-            value TEXT,
-            screenshot_path TEXT,
-            purpose TEXT,
-            FOREIGN KEY (session_id) REFERENCES sessions(id)
-        )
-    """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                timestamp TEXT NOT NULL,
+                action_type TEXT NOT NULL,
+                selector TEXT,
+                value TEXT,
+                screenshot_path TEXT,
+                purpose TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(id)
+            )
+        """)
 
-    # 創建索引
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_actions_session
-        ON actions(session_id)
-    """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_actions_session
+            ON actions(session_id)
+        """)
 
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_actions_timestamp
-        ON actions(timestamp)
-    """)
-
-    conn.commit()
-    conn.close()
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_actions_timestamp
+            ON actions(timestamp)
+        """)
 
     return config.DB_PATH
 
 
 def create_session(name: str, url: str) -> int:
     """創建新的測試 session"""
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
+    with sqlite3.connect(config.DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO sessions (name, url, started_at, status)
+            VALUES (?, ?, ?, ?)
+        """, (name, url, datetime.now().isoformat(), 'running'))
 
-    cursor.execute("""
-        INSERT INTO sessions (name, url, started_at, status)
-        VALUES (?, ?, ?, ?)
-    """, (name, url, datetime.now().isoformat(), 'running'))
-
-    session_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-
-    return session_id
+        return cursor.lastrowid
 
 
-def end_session(session_id: int):
+def end_session(session_id: int) -> bool:
     """結束測試 session"""
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
+    with sqlite3.connect(config.DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE sessions
+            SET ended_at = ?, status = ?
+            WHERE id = ?
+        """, (datetime.now().isoformat(), 'completed', session_id))
 
-    cursor.execute("""
-        UPDATE sessions
-        SET ended_at = ?, status = ?
-        WHERE id = ?
-    """, (datetime.now().isoformat(), 'completed', session_id))
-
-    conn.commit()
-    conn.close()
+        return cursor.rowcount > 0
 
 
 def record_action(
@@ -99,62 +86,74 @@ def record_action(
     value: Optional[str] = None,
     screenshot_path: Optional[str] = None,
     purpose: Optional[str] = None
-):
+) -> bool:
     """記錄單次操作"""
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
+    # 輸入驗證
+    if action_type and len(action_type) > 50:
+        action_type = action_type[:50]
+    if selector and len(selector) > 500:
+        selector = selector[:500]
+    if value and len(value) > 2000:
+        value = value[:2000]
+    if purpose and len(purpose) > 1000:
+        purpose = purpose[:1000]
 
-    cursor.execute("""
-        INSERT INTO actions
-        (session_id, timestamp, action_type, selector, value, screenshot_path, purpose)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (
-        session_id,
-        datetime.now().isoformat(),
-        action_type,
-        selector,
-        value,
-        screenshot_path,
-        purpose
-    ))
+    try:
+        with sqlite3.connect(config.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO actions
+                (session_id, timestamp, action_type, selector, value, screenshot_path, purpose)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                session_id,
+                datetime.now().isoformat(),
+                action_type,
+                selector,
+                value,
+                screenshot_path,
+                purpose
+            ))
+            return True
+    except sqlite3.Error:
+        return False
 
-    conn.commit()
-    conn.close()
+
+def get_session(session_id: int) -> Optional[tuple]:
+    """根據 session_id 獲取 session 詳情"""
+    with sqlite3.connect(config.DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, name, url, started_at, ended_at, status
+            FROM sessions
+            WHERE id = ?
+        """, (session_id,))
+        return cursor.fetchone()
 
 
 def get_session_actions(session_id: int) -> list:
     """獲取指定 session 的所有操作"""
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT id, timestamp, action_type, selector, value, screenshot_path, purpose
-        FROM actions
-        WHERE session_id = ?
-        ORDER BY timestamp ASC
-    """, (session_id,))
-
-    actions = cursor.fetchall()
-    conn.close()
-
-    return actions
+    with sqlite3.connect(config.DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, timestamp, action_type, selector, value, screenshot_path, purpose
+            FROM actions
+            WHERE session_id = ?
+            ORDER BY timestamp ASC
+        """, (session_id,))
+        return cursor.fetchall()
 
 
 def get_all_sessions() -> list:
     """獲取所有 sessions"""
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT id, name, url, started_at, ended_at, status
-        FROM sessions
-        ORDER BY started_at DESC
-    """)
-
-    sessions = cursor.fetchall()
-    conn.close()
-
-    return sessions
+    with sqlite3.connect(config.DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, name, url, started_at, ended_at, status
+            FROM sessions
+            ORDER BY started_at DESC
+        """)
+        return cursor.fetchall()
 
 
 if __name__ == "__main__":

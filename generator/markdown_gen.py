@@ -4,11 +4,9 @@ Markdown 報告生成器
 """
 import os
 from datetime import datetime
-from typing import List, Dict, Any
 import config
 
-# 導入數據庫模塊
-from core.db_manager import get_session_actions, get_all_sessions
+from core.db_manager import get_session_actions, get_all_sessions, get_session
 
 
 def action_type_to_zh(action_type: str) -> str:
@@ -41,24 +39,19 @@ def generate_markdown_report(session_id: int, output_path: str = None) -> str:
         生成的 Markdown 文件路徑
     """
     actions = get_session_actions(session_id)
-    sessions = get_all_sessions()
+    session_row = get_session(session_id)
 
-    # 找到 session 信息
-    session_info = None
-    for s in sessions:
-        if s[0] == session_id:
-            session_info = {
-                "id": s[0],
-                "name": s[1],
-                "url": s[2],
-                "started_at": s[3],
-                "ended_at": s[4],
-                "status": s[5]
-            }
-            break
-
-    if not session_info:
+    if not session_row:
         raise ValueError(f"找不到 session ID: {session_id}")
+
+    session_info = {
+        "id": session_row[0],
+        "name": session_row[1],
+        "url": session_row[2],
+        "started_at": session_row[3],
+        "ended_at": session_row[4],
+        "status": session_row[5]
+    }
 
     # 構建報告
     lines = []
