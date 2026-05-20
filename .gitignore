@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# 數據庫和存儲
+storage/*.db
+storage/screenshots/*
+storage/videos/*
+!storage/.gitkeep
+
+# 報告
+reports/*.md
+reports/*.html
+
+# 環境變量
+.env
+.env.local
+config.local.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
