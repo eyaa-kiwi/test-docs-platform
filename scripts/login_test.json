@@ -1,0 +1,43 @@
+{
+    "name": "UAT 登入測試",
+    "description": "測試登入 UAT 系統的基本流程，包括輸入帳號密碼、點擊登入、驗證登入結果",
+    "url": "https://cm-app-test.home/CMIS.Web_UAT/Common/Login.aspx?Kiosk=N",
+    "headless": false,
+    "steps": [
+        {
+            "action": "wait",
+            "value": "2000",
+            "purpose": "等待頁面完全載入"
+        },
+        {
+            "action": "screenshot",
+            "purpose": "登入頁面截圖"
+        },
+        {
+            "action": "fill",
+            "selector": "#txtUserID",
+            "value": "your_username",
+            "purpose": "輸入使用者帳號"
+        },
+        {
+            "action": "fill",
+            "selector": "#txtPassword",
+            "value": "your_password",
+            "purpose": "輸入密碼"
+        },
+        {
+            "action": "click",
+            "selector": "#btnLogin",
+            "purpose": "點擊登入按鈕"
+        },
+        {
+            "action": "wait",
+            "value": "3000",
+            "purpose": "等待登入結果"
+        },
+        {
+            "action": "screenshot",
+            "purpose": "登入後頁面截圖"
+        }
+    ]
+}

@@ -83,17 +83,26 @@ def generate_markdown_report(session_id: int, output_path: str = None) -> str:
     if not actions:
         lines.append("> 無操作記錄")
     else:
-        lines.append("| 序號 | 時間 | 操作類型 | 目標選擇器 | 輸入值 | 截圖 | 目的 |")
-        lines.append("|------|------|----------|------------|--------|------|------|")
+        lines.append("| 序號 | 時間 | 操作類型 | 頁面名稱 | 元素名稱 | 元素類型 | 目標選擇器 | 輸入值 | 截圖 | 目的 |")
+        lines.append("|------|------|----------|----------|----------|----------|------------|--------|------|------|")
 
         for i, action in enumerate(actions, 1):
-            action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
+            # 兼容 7 欄位或 11 欄位
+            if len(action) >= 11:
+                action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type = action
+            else:
+                action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
+                page_title, page_url, element_name, element_type = "", "", "", ""
 
             zh_action = action_type_to_zh(action_type)
             screenshot_mark = "📷" if screenshot_path and os.path.exists(screenshot_path) else ""
             purpose_text = purpose if purpose else "自動記錄"
 
-            lines.append(f"| {i} | {timestamp} | {zh_action} | `{selector or '-'}` | `{value or '-'}` | {screenshot_mark} | {purpose_text} |")
+            # 截斷長文本
+            page_display = (page_title[:30] + "...") if len(page_title) > 30 else (page_title or '-')
+            elem_display = (element_name[:25] + "...") if len(element_name) > 25 else (element_name or '-')
+
+            lines.append(f"| {i} | {timestamp} | {zh_action} | {page_display} | {elem_display} | {element_type or '-'} | `{selector or '-'}` | `{value or '-'}` | {screenshot_mark} | {purpose_text} |")
 
         lines.append("")
 
@@ -102,7 +111,11 @@ def generate_markdown_report(session_id: int, output_path: str = None) -> str:
         lines.append("")
 
         for i, action in enumerate(actions, 1):
-            action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
+            # 兼容舊版 7 欄位與新版 11 欄位
+            if len(action) >= 11:
+                action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type = action
+            else:
+                action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
             if screenshot_path and os.path.exists(screenshot_path):
                 lines.append(f"### 步驟 {i} - {action_type_to_zh(action_type)}")
                 lines.append("")
@@ -116,7 +129,11 @@ def generate_markdown_report(session_id: int, output_path: str = None) -> str:
     lines.append("|------|----------|----------|---------|")
 
     for i, action in enumerate(actions, 1):
-        action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
+        # 兼容 7 欄位或 11 欄位
+        if len(action) >= 11:
+            action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type = action
+        else:
+            action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
         if action_type == "click":
             lines.append(f"| {i} | 點擊功能驗證 | 執行點擊操作 | 成功觸發 {selector} 點擊事件 |")
         elif action_type == "type":

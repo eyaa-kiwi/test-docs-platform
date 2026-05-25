@@ -37,6 +37,10 @@ def init_db() -> str:
                 value TEXT,
                 screenshot_path TEXT,
                 purpose TEXT,
+                page_title TEXT,
+                page_url TEXT,
+                element_name TEXT,
+                element_type TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             )
         """)
@@ -85,7 +89,11 @@ def record_action(
     selector: Optional[str] = None,
     value: Optional[str] = None,
     screenshot_path: Optional[str] = None,
-    purpose: Optional[str] = None
+    purpose: Optional[str] = None,
+    page_title: Optional[str] = None,
+    page_url: Optional[str] = None,
+    element_name: Optional[str] = None,
+    element_type: Optional[str] = None,
 ) -> bool:
     """記錄單次操作"""
     # 輸入驗證
@@ -97,14 +105,23 @@ def record_action(
         value = value[:2000]
     if purpose and len(purpose) > 1000:
         purpose = purpose[:1000]
+    if page_title and len(page_title) > 500:
+        page_title = page_title[:500]
+    if page_url and len(page_url) > 2000:
+        page_url = page_url[:2000]
+    if element_name and len(element_name) > 500:
+        element_name = element_name[:500]
+    if element_type and len(element_type) > 100:
+        element_type = element_type[:100]
 
     try:
         with sqlite3.connect(config.DB_PATH) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO actions
-                (session_id, timestamp, action_type, selector, value, screenshot_path, purpose)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (session_id, timestamp, action_type, selector, value, screenshot_path, purpose,
+                 page_title, page_url, element_name, element_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 session_id,
                 datetime.now().isoformat(),
@@ -112,7 +129,11 @@ def record_action(
                 selector,
                 value,
                 screenshot_path,
-                purpose
+                purpose,
+                page_title,
+                page_url,
+                element_name,
+                element_type,
             ))
             return True
     except sqlite3.Error:
@@ -136,7 +157,8 @@ def get_session_actions(session_id: int) -> list:
     with sqlite3.connect(config.DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, timestamp, action_type, selector, value, screenshot_path, purpose
+            SELECT id, timestamp, action_type, selector, value, screenshot_path, purpose,
+                   page_title, page_url, element_name, element_type
             FROM actions
             WHERE session_id = ?
             ORDER BY timestamp ASC
