@@ -7,42 +7,38 @@ from datetime import datetime
 import config
 
 from core.db_manager import get_session_actions, get_all_sessions, get_session
+from i18n import t, get_lang, set_lang
 
 
-def action_type_to_zh(action_type: str) -> str:
-    """將操作類型轉換為中文描述"""
-    mapping = {
-        "click": "點擊",
-        "type": "輸入",
-        "navigate": "導航",
-        "scroll": "滾動",
-        "hover": "懸停",
-        "dblclick": "雙擊",
-        "check": "勾選",
-        "uncheck": "取消勾選",
-        "select": "選擇",
-        "wait": "等待",
-        "assert": "斷言"
-    }
-    return mapping.get(action_type, action_type)
+def _action_type(key: str) -> str:
+    """翻譯 action_type"""
+    return t(f"action_{key}")
 
 
-def generate_markdown_report(session_id: int, output_path: str = None) -> str:
+def generate_markdown_report(session_id: int, output_path: str = None, lang: str = None) -> str:
     """
     生成 Markdown 測試報告
 
     Args:
         session_id: 測試 session ID
         output_path: 輸出路徑，如果為 None 則默認為 reports/test_plan_{session_id}.md
+        lang: 語言覆蓋 ('zh' or 'en')，預設使用 config.LANGUAGE
 
     Returns:
         生成的 Markdown 文件路徑
     """
+    # 設定語言
+    orig_lang = get_lang()
+    if lang and lang in ("zh", "en"):
+        set_lang(lang)
+    elif config.LANGUAGE and config.LANGUAGE in ("zh", "en"):
+        set_lang(config.LANGUAGE)
+
     actions = get_session_actions(session_id)
     session_row = get_session(session_id)
 
     if not session_row:
-        raise ValueError(f"找不到 session ID: {session_id}")
+        raise ValueError(f"Session not found: {session_id}")
 
     session_info = {
         "id": session_row[0],
@@ -57,33 +53,31 @@ def generate_markdown_report(session_id: int, output_path: str = None) -> str:
     lines = []
 
     # 標題
-    lines.append(f"# 測試計書報告 - {session_info['name']}")
+    lines.append(f"# {t('report_title')} - {session_info['name']}")
     lines.append("")
-    lines.append(f"**生成時間**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"**{t('generated_at')}**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append("")
 
     # 測試概覽
-    lines.append("## 測試概覽")
+    lines.append(f"## {t('test_overview')}")
     lines.append("")
-    lines.append(f"| 項目 | 內容 |")
-    lines.append(f"|------|------|")
-    lines.append(f"| Session ID | {session_info['id']} |")
-    lines.append(f"| 測試名稱 | {session_info['name']} |")
-    lines.append(f"| 測試網址 | {session_info['url']} |")
-    lines.append(f"| 開始時間 | {session_info['started_at']} |")
-    lines.append(f"| 結束時間 | {session_info['ended_at']} |")
-    lines.append(f"| 狀態 | {session_info['status']} |")
-    lines.append(f"| 總操作數 | {len(actions)} |")
+    lines.append(f"| {t('test_overview_id')} | {t('session_id')} |")
+    lines.append(f"| {t('test_overview_name')} | {session_info['name']} |")
+    lines.append(f"| {t('test_overview_url')} | {session_info['url']} |")
+    lines.append(f"| {t('start_time')} | {session_info['started_at']} |")
+    lines.append(f"| {t('end_time')} | {session_info['ended_at'] or '-'} |")
+    lines.append(f"| {t('status')} | {session_info['status']} |")
+    lines.append(f"| {t('total_actions')} | {len(actions)} |")
     lines.append("")
 
     # 測試步驟詳情
-    lines.append("## 測試步驟詳情")
+    lines.append(f"## {t('test_steps_detail')}")
     lines.append("")
 
     if not actions:
-        lines.append("> 無操作記錄")
+        lines.append(f"> {t('no_actions')}")
     else:
-        lines.append("| 序號 | 時間 | 操作類型 | 頁面名稱 | 元素名稱 | 元素類型 | 目標選擇器 | 輸入值 | 截圖 | 目的 |")
+        lines.append(f"| {t('step_num')} | {t('time')} | {t('action_type')} | {t('page_title_col')} | {t('element_name')} | {t('element_type')} | {t('target_selector')} | {t('input_value')} | {t('screenshot')} | {t('purpose')} |")
         lines.append("|------|------|----------|----------|----------|----------|------------|--------|------|------|")
 
         for i, action in enumerate(actions, 1):
@@ -94,9 +88,9 @@ def generate_markdown_report(session_id: int, output_path: str = None) -> str:
                 action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
                 page_title, page_url, element_name, element_type = "", "", "", ""
 
-            zh_action = action_type_to_zh(action_type)
+            zh_action = _action_type(action_type)
             screenshot_mark = "📷" if screenshot_path and os.path.exists(screenshot_path) else ""
-            purpose_text = purpose if purpose else "自動記錄"
+            purpose_text = purpose if purpose else t("auto_recorded")
 
             # 截斷長文本
             page_display = (page_title[:30] + "...") if len(page_title) > 30 else (page_title or '-')
@@ -107,7 +101,7 @@ def generate_markdown_report(session_id: int, output_path: str = None) -> str:
         lines.append("")
 
         # 截圖部分
-        lines.append("## 截圖記錄")
+        lines.append(f"## {t('screenshot_record')}")
         lines.append("")
 
         for i, action in enumerate(actions, 1):
@@ -117,15 +111,15 @@ def generate_markdown_report(session_id: int, output_path: str = None) -> str:
             else:
                 action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
             if screenshot_path and os.path.exists(screenshot_path):
-                lines.append(f"### 步驟 {i} - {action_type_to_zh(action_type)}")
+                lines.append(f"### {t('step')} {i} - {_action_type(action_type)}")
                 lines.append("")
                 lines.append(f"![{action_type}]({screenshot_path})")
                 lines.append("")
 
     # 驗證標準
-    lines.append("## 自動驗收標準")
+    lines.append(f"## {t('auto_acceptance_criteria')}")
     lines.append("")
-    lines.append("| 編號 | 驗證項目 | 驗證方法 | 預期結果 |")
+    lines.append(f"| {t('item_num')} | {t('verify_item')} | {t('verify_method')} | {t('expected_result')} |")
     lines.append("|------|----------|----------|---------|")
 
     for i, action in enumerate(actions, 1):
@@ -135,15 +129,15 @@ def generate_markdown_report(session_id: int, output_path: str = None) -> str:
         else:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
         if action_type == "click":
-            lines.append(f"| {i} | 點擊功能驗證 | 執行點擊操作 | 成功觸發 {selector} 點擊事件 |")
+            lines.append(f"| {i} | {t('click_verify')} | {t('click_desc')} | {t('click_result', selector=selector or '-')} |")
         elif action_type == "type":
-            lines.append(f"| {i} | 輸入功能驗證 | 執行輸入操作 | 成功在 {selector} 輸入 {value} |")
+            lines.append(f"| {i} | {t('type_verify')} | {t('type_desc')} | {t('type_result', selector=selector or '-', value=value or '')} |")
         elif action_type == "navigate":
-            lines.append(f"| {i} | 頁面導航驗證 | 執行導航操作 | 成功跳轉至 {selector} |")
+            lines.append(f"| {i} | {t('navigate_verify')} | {t('navigate_desc')} | {t('navigate_result', selector=selector or '-')} |")
 
     lines.append("")
     lines.append("---")
-    lines.append(f"*本報告由 Test Docs Platform 自動生成*")
+    lines.append(f"*{t('footer')}*")
 
     # 寫入文件
     if output_path is None:
@@ -154,25 +148,34 @@ def generate_markdown_report(session_id: int, output_path: str = None) -> str:
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(content)
 
-    print(f"測試報告已生成：{output_path}")
+    print(f"{t('markdown_report')}: {output_path}")
+
+    # 恢復原本語言
+    set_lang(orig_lang)
     return output_path
 
 
-def generate_all_sessions_report() -> str:
+def generate_all_sessions_report(lang: str = None) -> str:
     """生成所有 session 的報告列表"""
+    orig_lang = get_lang()
+    if lang and lang in ("zh", "en"):
+        set_lang(lang)
+    elif config.LANGUAGE and config.LANGUAGE in ("zh", "en"):
+        set_lang(config.LANGUAGE)
+
     sessions = get_all_sessions()
 
     lines = []
-    lines.append("# 所有測試會話列表")
+    lines.append(f"# {t('all_sessions_title')}")
     lines.append("")
-    lines.append(f"共 {len(sessions)} 個會話")
+    lines.append(t("total_sessions", count=len(sessions)))
     lines.append("")
-    lines.append("| ID | 名稱 | 網址 | 開始時間 | 狀態 | 生成報告 |")
-    lines.append("|----|------|------|----------|------|----------|")
+    lines.append(f"| {t('session_id')} | {t('test_name')} | {t('test_url')} | {t('start_time')} | {t('status')} | {t('generate_report')} |")
+    lines.append("|------|------|------|----------|------|----------|")
 
     for s in sessions:
         session_id, name, url, started_at, ended_at, status = s
-        lines.append(f"| {session_id} | {name} | {url} | {started_at} | {status} | [報告](test_plan_{session_id}.md) |")
+        lines.append(f"| {session_id} | {name} | {url} | {started_at} | {status} | [📄](test_plan_{session_id}.md) |")
 
     lines.append("")
 
@@ -180,6 +183,7 @@ def generate_all_sessions_report() -> str:
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
+    set_lang(orig_lang)
     return output_path
 
 

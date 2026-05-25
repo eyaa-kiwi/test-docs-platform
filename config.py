@@ -38,3 +38,6 @@ VIEWPORT_PRESETS = {
     "Tablet": {"width": 768,  "height": 1024},
     "Mobile": {"width": 375,  "height": 812},
 }
+
+# 報告語言 (zh = 繁體中文, en = English)
+LANGUAGE = os.getenv("TDP_LANGUAGE", "zh")

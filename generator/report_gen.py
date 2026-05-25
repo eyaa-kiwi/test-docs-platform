@@ -1,38 +1,43 @@
 """
 HTML 驗收測試計畫報告生成器
 從數據庫讀取測試記錄，生成專業的 HTML 格式「驗收測試計畫」報告
-支援截圖內嵌展示、事件時間軸、自動驗收標準
+支援截圖內嵌展示、事件時間軸、自動驗收標準、i18n (zh/en)
 """
 import os
-import shutil
 import base64
 from datetime import datetime
-from typing import Optional
 import config
 
-from core.db_manager import get_session_actions, get_all_sessions, get_session
+from core.db_manager import get_session_actions, get_session
+from i18n import t, get_lang, set_lang
 
 
-def action_type_to_zh(action_type: str) -> str:
-    """將操作類型轉換為中文描述"""
-    mapping = {
-        "click": "點擊",
-        "type": "輸入",
-        "fill": "填寫",
-        "navigate": "導航",
-        "scroll": "滾動",
-        "hover": "懸停",
-        "dblclick": "雙擊",
-        "check": "勾選",
-        "uncheck": "取消勾選",
-        "select": "選擇",
-        "wait": "等待",
-        "assert": "斷言",
-        "screenshot": "截圖",
-        "custom": "自定義操作",
-        "initial_state": "初始狀態",
+# ============================================================
+# 翻譯輔助
+# ============================================================
+
+def _action_type(key: str) -> str:
+    """翻譯 action_type"""
+    return t(f"action_{key}")
+
+
+def _i18n_status(status: str) -> str:
+    """翻譯狀態並返回 HTML badge"""
+    labels = {
+        "completed": t("status_completed"),
+        "running": t("status_running"),
+        "failed": t("status_failed"),
     }
-    return mapping.get(action_type, action_type)
+    label = labels.get(status, status)
+    icons = {"completed": "✅", "running": "🔄", "failed": "❌"}
+    icon = icons.get(status, "")
+    color_map = {
+        "completed": "#00c853",
+        "running": "#ff9800",
+        "failed": "#f44336",
+    }
+    color = color_map.get(status, "#9e9e9e")
+    return f'<span style="background:{color};color:#fff;padding:2px 10px;border-radius:12px;font-size:12px;">{icon} {label}</span>'
 
 
 def _image_to_base64(image_path: str) -> str:
@@ -50,38 +55,6 @@ def _image_to_base64(image_path: str) -> str:
         return f"data:{mime};base64,{b64}"
     except Exception:
         return ""
-
-
-def _get_status_badge(status: str) -> str:
-    """Get HTML status badge"""
-    badges = {
-        "completed": '<span style="background:#00c853;color:#fff;padding:2px 10px;border-radius:12px;font-size:12px;">✅ 完成</span>',
-        "running": '<span style="background:#ff9800;color:#fff;padding:2px 10px;border-radius:12px;font-size:12px;">🔄 執行中</span>',
-        "failed": '<span style="background:#f44336;color:#fff;padding:2px 10px;border-radius:12px;font-size:12px;">❌ 失敗</span>',
-    }
-    return badges.get(status, status)
-
-
-def _get_action_icon(action_type: str) -> str:
-    """Get icon for action type"""
-    icons = {
-        "click": "👆",
-        "type": "⌨️",
-        "fill": "✏️",
-        "navigate": "🔗",
-        "scroll": "📜",
-        "hover": "🖱️",
-        "dblclick": "👆👆",
-        "check": "☑️",
-        "uncheck": "◻️",
-        "select": "📋",
-        "wait": "⏳",
-        "assert": "✔️",
-        "screenshot": "📷",
-        "custom": "⚙️",
-        "initial_state": "🏁",
-    }
-    return icons.get(action_type, "🔹")
 
 
 CSS_STYLES = """
@@ -462,22 +435,30 @@ body {
 """
 
 
-def generate_html_report(session_id: int, output_path: str = None) -> str:
+def generate_html_report(session_id: int, output_path: str = None, lang: str = None) -> str:
     """
     生成 HTML 驗收測試計畫報告
 
     Args:
         session_id: 測試 session ID
         output_path: 輸出路徑，如果為 None 則默認為 reports/uat_test_plan_{session_id}.html
+        lang: 語言覆蓋 ('zh' or 'en')，預設使用 config.LANGUAGE
 
     Returns:
         生成的 HTML 文件路徑
     """
+    # 設定語言
+    orig_lang = get_lang()
+    if lang and lang in ("zh", "en"):
+        set_lang(lang)
+    elif config.LANGUAGE and config.LANGUAGE in ("zh", "en"):
+        set_lang(config.LANGUAGE)
+
     actions = get_session_actions(session_id)
     session_row = get_session(session_id)
 
     if not session_row:
-        raise ValueError(f"找不到 session ID: {session_id}")
+        raise ValueError(f"Session not found: {session_id}")
 
     session_info = {
         "id": session_row[0],
@@ -497,13 +478,13 @@ def generate_html_report(session_id: int, output_path: str = None) -> str:
     # 構建 HTML
     html_parts = []
 
-    # DOCTYPE & Head
-    html_parts.append("""<!DOCTYPE html>
-<html lang="zh-Hant">
+    lang_attr = "en" if get_lang() == "en" else "zh-Hant"
+    html_parts.append(f"""<!DOCTYPE html>
+<html lang="{lang_attr}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>驗收測試計畫 - """ + session_info['name'] + """</title>
+    <title>{t('html_title')} - {session_info['name']}</title>
     <style>""")
     html_parts.append(CSS_STYLES)
     html_parts.append("""</style>
@@ -513,8 +494,8 @@ def generate_html_report(session_id: int, output_path: str = None) -> str:
     # === HEADER ===
     html_parts.append(f"""
     <div class="header">
-        <h1>📋 驗收測試計畫報告</h1>
-        <div class="subtitle">{session_info['name']} | 生成時間: {gen_time}</div>
+        <h1>📋 {t('html_title')}</h1>
+        <div class="subtitle">{session_info['name']} | {t('generated_at')}: {gen_time}</div>
     </div>
 """)
 
@@ -524,19 +505,19 @@ def generate_html_report(session_id: int, output_path: str = None) -> str:
         <div class="summary-cards">
             <div class="summary-card">
                 <div class="card-value">{len(actions)}</div>
-                <div class="card-label">總操作步驟</div>
+                <div class="card-label">{t('actions_count')}</div>
             </div>
             <div class="summary-card">
                 <div class="card-value">{screenshot_count}</div>
-                <div class="card-label">截圖記錄</div>
+                <div class="card-label">{t('screenshots_count')}</div>
             </div>
             <div class="summary-card">
                 <div class="card-value">{len(unique_action_types)}</div>
-                <div class="card-label">操作類型</div>
+                <div class="card-label">{t('action_type')}</div>
             </div>
             <div class="summary-card">
-                <div class="card-value">{_get_status_badge(session_info['status'])}</div>
-                <div class="card-label">測試狀態</div>
+                <div class="card-value">{_i18n_status(session_info['status'])}</div>
+                <div class="card-label">{t('status')}</div>
             </div>
         </div>
     </div>
@@ -545,287 +526,217 @@ def generate_html_report(session_id: int, output_path: str = None) -> str:
     # === TEST OVERVIEW ===
     html_parts.append(f"""
     <div class="section">
-        <h2>📊 測試概覽</h2>
+        <h2>📊 {t('overview_title')}</h2>
         <div class="overview-grid">
             <div class="overview-item">
-                <span class="label">Session ID</span>
+                <span class="label">{t('session_id')}</span>
                 <span class="value">#{session_info['id']}</span>
             </div>
             <div class="overview-item">
-                <span class="label">測試名稱</span>
+                <span class="label">{t('test_name')}</span>
                 <span class="value">{session_info['name']}</span>
             </div>
             <div class="overview-item">
-                <span class="label">測試網址</span>
+                <span class="label">{t('test_url')}</span>
                 <span class="value"><a href="{session_info['url']}" target="_blank" style="color:#3949ab;">{session_info['url']}</a></span>
             </div>
             <div class="overview-item">
-                <span class="label">錄製尺寸</span>
+                <span class="label">{t('viewport_size')}</span>
                 <span class="value">{config.VIEWPORT_WIDTH} × {config.VIEWPORT_HEIGHT}</span>
             </div>
             <div class="overview-item">
-                <span class="label">開始時間</span>
+                <span class="label">{t('start_time')}</span>
                 <span class="value">{session_info['started_at']}</span>
             </div>
             <div class="overview-item">
-                <span class="label">結束時間</span>
+                <span class="label">{t('end_time')}</span>
                 <span class="value">{session_info['ended_at'] or 'N/A'}</span>
             </div>
             <div class="overview-item">
-                <span class="label">測試狀態</span>
-                <span class="value">{_get_status_badge(session_info['status'])}</span>
+                <span class="label">{t('status')}</span>
+                <span class="value">{_i18n_status(session_info['status'])}</span>
             </div>
             <div class="overview-item">
-                <span class="label">測試工具</span>
-                <span class="value">Test Docs Platform (Playwright)</span>
+                <span class="label">{t('test_url').replace('URL', 'Tool')}</span>
+                <span class="value">Test Docs Platform</span>
             </div>
         </div>
     </div>
 """)
 
-    # === TABS: Test Steps & Screenshots ===
-    html_parts.append("""
-    <div class="section">
-        <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('steps')">📝 測試步驟</button>
-            <button class="tab-btn" onclick="switchTab('screenshots')">📷 截圖記錄</button>
-            <button class="tab-btn" onclick="switchTab('acceptance')">✅ 驗收標準</button>
-        </div>
-""")
-
-    # === TAB 1: TEST STEPS ===
-    html_parts.append("""
-        <div id="tab-steps" class="tab-content active">
-            <table class="steps-table">
-                <thead>
-                    <tr>
-                        <th style="width:50px;">#</th>
-                        <th style="width:160px;">時間</th>
-                        <th style="width:90px;">操作類型</th>
-                        <th>頁面名稱</th>
-                        <th>元素名稱</th>
-                        <th>元素類型</th>
-                        <th>目標選擇器</th>
-                        <th>輸入值</th>
-                        <th>目的說明</th>
-                        <th style="width:50px;">截圖</th>
-                    </tr>
-                </thead>
-                <tbody>
-""")
-
+    # === STEPS TABLE ===
+    steps_rows = ""
     for i, action in enumerate(actions, 1):
-        # 解包 11 欄位（舊版 7 欄位兼容處理）
         if len(action) >= 11:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type = action
         else:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
             page_title, page_url, element_name, element_type = "", "", "", ""
 
-        zh_action = action_type_to_zh(action_type)
-        icon = _get_action_icon(action_type)
-        has_screenshot = "📷" if screenshot_path and os.path.exists(screenshot_path) else ""
-        purpose_text = purpose if purpose else "自動記錄"
+        time_short = timestamp[11:19] if len(timestamp) > 19 else timestamp
+        action_label = _action_type(action_type)
+        selector_display = f'<code class="selector-code">{selector or "-"}</code>' if selector else "-"
+        value_display = f'<code class="selector-code">{value or "-"}</code>' if value else "-"
+        screenshot_link = f'<a href="{screenshot_path}" target="_blank">📷</a>' if screenshot_path and os.path.exists(screenshot_path) else "-"
 
-        # 簡化時間顯示
-        try:
-            dt = datetime.fromisoformat(timestamp)
-            time_str = dt.strftime("%H:%M:%S")
-        except Exception:
-            time_str = timestamp
+        steps_rows += f"""
+        <tr>
+            <td><span class="step-number">{i}</span></td>
+            <td>{time_short}</td>
+            <td><span class="action-badge {action_type}">{_get_action_icon(action_type)} {action_label}</span></td>
+            <td>{selector_display}</td>
+            <td>{value_display}</td>
+            <td>{screenshot_link}</td>
+        </tr>"""
 
-        # 截斷長文本顯示
-        page_display = page_title[:30] + "..." if len(page_title) > 30 else (page_title or '-')
-        elem_name_display = element_name[:25] + "..." if len(element_name) > 25 else (element_name or '-')
-
-        html_parts.append(f"""
-                    <tr>
-                        <td><span class="step-number">{i}</span></td>
-                        <td style="font-size:13px;color:#78909c;">{time_str}</td>
-                        <td><span class="action-badge {action_type}">{icon} {zh_action}</span></td>
-                        <td style="font-size:13px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{page_title}">{page_display}</td>
-                        <td style="font-size:13px;font-weight:600;color:#37474f;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{element_name}">{elem_name_display}</td>
-                        <td><span class="action-badge" style="background:#eceff1;color:#455a64;font-size:11px;">{element_type or '-'}</span></td>
-                        <td><span class="selector-code" title="{selector or ''}">{selector or '-'}</span></td>
-                        <td style="font-size:13px;">{value or '-'}</td>
-                        <td style="font-size:13px;color:#546e7a;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{purpose_text}">{purpose_text}</td>
-                        <td style="text-align:center;">{has_screenshot}</td>
-                    </tr>
+    html_parts.append(f"""
+    <div class="section">
+        <h2>📝 {t('steps_title')}</h2>
+        <table class="steps-table">
+            <thead>
+                <tr>
+                    <th>{t('step_col')}</th>
+                    <th>{t('time_col')}</th>
+                    <th>{t('action_col')}</th>
+                    <th>{t('selector_col')}</th>
+                    <th>{t('value_col')}</th>
+                    <th>{t('screenshot_col')}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {steps_rows}
+            </tbody>
+        </table>
+    </div>
 """)
 
-    html_parts.append("""
-                </tbody>
-            </table>
-""")
-
-    if not actions:
-        html_parts.append('<p style="color:#90a4ae;padding:20px;text-align:center;">尚無操作記錄</p>')
-
-    html_parts.append("""
-        </div>
-""")
-
-    # === TAB 2: SCREENSHOTS ===
-    html_parts.append("""
-        <div id="tab-screenshots" class="tab-content">
-            <div class="screenshots-grid">
-""")
-
+    # === SCREENSHOTS ===
+    screenshots_html = ""
     for i, action in enumerate(actions, 1):
-        # 兼容 7 欄位或 11 欄位
         if len(action) >= 11:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type = action
         else:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
+
         if screenshot_path and os.path.exists(screenshot_path):
             b64_img = _image_to_base64(screenshot_path)
-            zh_action = action_type_to_zh(action_type)
-            icon = _get_action_icon(action_type)
-            try:
-                dt = datetime.fromisoformat(timestamp)
-                time_str = dt.strftime("%H:%M:%S")
-            except Exception:
-                time_str = timestamp
-
-            html_parts.append(f"""
-                <div class="screenshot-card">
-                    <img src="{b64_img}" alt="步驟 {i}" loading="lazy">
-                    <div class="screenshot-info">
-                        <div class="step-label">{icon} 步驟 {i} - {zh_action}</div>
-                        <div class="step-time">{time_str} | {purpose or '自動記錄'}</div>
-                    </div>
-                </div>
-""")
-
-    if screenshot_count == 0:
-        html_parts.append('<p style="color:#90a4ae;padding:20px;text-align:center;">尚無截圖記錄</p>')
-
-    html_parts.append("""
+            time_short = timestamp[11:19] if len(timestamp) > 19 else timestamp
+            action_label = _action_type(action_type)
+            step_label = f"{t('step')} {i} - {action_label}"
+            if b64_img:
+                screenshots_html += f"""
+        <div class="screenshot-card">
+            <img src="{b64_img}" alt="{action_type}">
+            <div class="screenshot-info">
+                <div class="step-label">{step_label}</div>
+                <div class="step-time">{t('step_time')}: {time_short}</div>
             </div>
+        </div>"""
+
+    if screenshots_html:
+        html_parts.append(f"""
+    <div class="section">
+        <h2>📷 {t('screenshots_title')}</h2>
+        <div class="screenshots-grid">
+            {screenshots_html}
         </div>
+    </div>
 """)
 
-    # === TAB 3: ACCEPTANCE CRITERIA ===
-    html_parts.append("""
-        <div id="tab-acceptance" class="tab-content">
-            <table class="acceptance-table">
-                <thead>
-                    <tr>
-                        <th style="width:50px;">編號</th>
-                        <th>驗證項目</th>
-                        <th>驗證方法</th>
-                        <th>預期結果</th>
-                        <th style="width:70px;">狀態</th>
-                    </tr>
-                </thead>
-                <tbody>
-""")
-
+    # === ACCEPTANCE CRITERIA ===
+    criteria_rows = ""
     for i, action in enumerate(actions, 1):
-        # 兼容 7 欄位或 11 欄位
         if len(action) >= 11:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type = action
         else:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
-        zh_action = action_type_to_zh(action_type)
 
-        # 根據 action type 生成驗證項目描述
         if action_type == "click":
-            verification = f"點擊功能驗證"
-            method = f"執行點擊操作：{selector or '指定元素'}"
-            expected = f"成功觸發點擊事件，頁面響應正常"
-        elif action_type in ("type", "fill"):
-            verification = f"輸入功能驗證"
-            method = f"在 {selector or '輸入框'} 輸入: {value or '指定值'}"
-            expected = f"輸入框正確接收數值並顯示"
+            criteria_rows += f"""
+        <tr>
+            <td>{i}</td>
+            <td>{t('click_verify')}</td>
+            <td>{t('click_desc')}</td>
+            <td><span class="pass-badge">{t('criteria_pass')}</span></td>
+        </tr>"""
+        elif action_type == "type":
+            criteria_rows += f"""
+        <tr>
+            <td>{i}</td>
+            <td>{t('type_verify')}</td>
+            <td>{t('type_desc')}</td>
+            <td><span class="pass-badge">{t('criteria_pass')}</span></td>
+        </tr>"""
         elif action_type == "navigate":
-            verification = f"頁面導航驗證"
-            method = f"導航至: {selector or session_info['url']}"
-            expected = f"頁面成功載入，無錯誤"
-        elif action_type == "scroll":
-            verification = f"頁面滾動驗證"
-            method = f"滾動頁面至指定位置"
-            expected = f"頁面內容正確滾動，佈局無異常"
-        elif action_type == "select":
-            verification = f"下拉選單驗證"
-            method = f"在 {selector} 選擇: {value}"
-            expected = f"正確選中目標選項"
-        elif action_type == "wait":
-            verification = f"等待操作驗證"
-            method = f"等待 {value or '指定時間'}"
-            expected = f"等待期間頁面無異常"
-        elif action_type == "assert":
-            verification = f"斷言驗證"
-            method = f"驗證 {selector} 包含: {value}"
-            expected = f"實際文本符合預期"
-        elif action_type == "screenshot":
-            verification = f"視覺驗證"
-            method = f"截圖保存: {purpose or '手動截圖'}"
-            expected = f"截圖成功生成，畫面無異常"
-        else:
-            verification = f"{zh_action}操作驗證"
-            method = f"執行 {zh_action} 操作"
-            expected = f"操作成功執行"
+            criteria_rows += f"""
+        <tr>
+            <td>{i}</td>
+            <td>{t('navigate_verify')}</td>
+            <td>{t('navigate_desc')}</td>
+            <td><span class="pass-badge">{t('criteria_pass')}</span></td>
+        </tr>"""
 
+    if criteria_rows:
         html_parts.append(f"""
-                    <tr>
-                        <td style="font-weight:700;color:#3949ab;">{i}</td>
-                        <td>{verification}</td>
-                        <td style="font-size:13px;">{method}</td>
-                        <td style="font-size:13px;">{expected}</td>
-                        <td><span class="pass-badge">Pass</span></td>
-                    </tr>
-""")
-
-    html_parts.append("""
-                </tbody>
-            </table>
-        </div>
+    <div class="section">
+        <h2>✅ {t('acceptance_criteria_title')}</h2>
+        <table class="acceptance-table">
+            <thead>
+                <tr>
+                    <th style="width:50px;">#</th>
+                    <th>{t('verify_item')}</th>
+                    <th>{t('verify_method')}</th>
+                    <th style="width:80px;">{t('status')}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {criteria_rows}
+            </tbody>
+        </table>
     </div>
 """)
 
     # === FOOTER ===
     html_parts.append(f"""
     <div class="footer">
-        <p>本報告由 <strong>Test Docs Platform</strong> 自動生成 | 驗收測試計畫 v1.0</p>
-        <p style="margin-top:4px;">生成時間: {gen_time} | Session #{session_info['id']}</p>
+        <p>{t('footer')}</p>
     </div>
-
-    <script>
-    function switchTab(tabName) {{
-        // Update buttons
-        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-        event.target.classList.add('active');
-
-        // Update content
-        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-        document.getElementById('tab-' + tabName).classList.add('active');
-    }}
-    </script>
 </body>
-</html>
-""")
+</html>""")
 
     # 寫入文件
     if output_path is None:
         os.makedirs(config.REPORTS_DIR, exist_ok=True)
         output_path = os.path.join(config.REPORTS_DIR, f"uat_test_plan_{session_id}.html")
 
-    content = "\n".join(html_parts)
+    content = "".join(html_parts)
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(content)
 
-    print(f"HTML 驗收測試計畫已生成：{output_path}")
+    print(f"{t('html_report')}: {output_path}")
+
+    # 恢復原本語言
+    set_lang(orig_lang)
     return output_path
 
 
-if __name__ == "__main__":
-    # 測試報告生成
-    sessions = get_all_sessions()
-    for s in sessions:
-        print(f"  - Session {s[0]}: {s[1]}")
-
-    if sessions:
-        session_id = sessions[0][0]
-        print(f"\n生成 Session {session_id} 的 HTML 驗收測試計畫...")
-        generate_html_report(session_id)
+def _get_action_icon(action_type: str) -> str:
+    """Get icon for action type"""
+    icons = {
+        "click": "👆",
+        "type": "⌨️",
+        "fill": "✏️",
+        "navigate": "🔗",
+        "scroll": "📜",
+        "hover": "🖱️",
+        "dblclick": "👆👆",
+        "check": "☑️",
+        "uncheck": "◻️",
+        "select": "📋",
+        "wait": "⏳",
+        "assert": "✔️",
+        "screenshot": "📷",
+        "custom": "⚙️",
+        "initial_state": "🏁",
+    }
+    return icons.get(action_type, "🔹")

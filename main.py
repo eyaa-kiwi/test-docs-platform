@@ -38,16 +38,17 @@ from core.recorder import TestRecorder
 from generator.markdown_gen import generate_markdown_report
 from generator.report_gen import generate_html_report
 import config
+from i18n import set_lang, get_lang, t
 
 
 def list_sessions():
     """列出所有測試會話"""
     sessions = get_all_sessions()
     if not sessions:
-        print("尚無測試會話記錄")
+        print(t("no_sessions"))
         return []
-    print("\n測試會話列表：")
-    print(f"  {'ID':<4} {'名稱':<20} {'網址':<40} {'狀態':<10}")
+    print(f"\n{t('sessions_list')}:")
+    print(f"  {t('session_id'):<4} {t('test_name'):<20} {t('test_url'):<40} {t('status'):<10}")
     print(f"  {'-'*4} {'-'*20} {'-'*40} {'-'*10}")
     for s in sessions:
         print(f"  {s[0]:<4} {s[1]:<20} {s[2]:<40} {s[5]:<10}")
@@ -73,9 +74,10 @@ def parse_dimensions(width_str, height_str, preset_str):
 
 async def run_interactive_recorder(
     url: str,
-    session_name: str = "測試會話",
+    session_name: str = "Test Session",
     viewport_width: int = None,
     viewport_height: int = None,
+    lang: str = None,
 ):
     """
     互動模式：打開瀏覽器，人工操作時自動記錄
@@ -85,10 +87,10 @@ async def run_interactive_recorder(
     vp_h = viewport_height or config.VIEWPORT_HEIGHT
 
     print("\n" + "=" * 60)
-    print(f"  互動錄製模式")
-    print(f"  Session: {session_name}")
-    print(f"  URL: {url}")
-    print(f"  錄製尺寸: {vp_w} x {vp_h}")
+    print(f"  {t('interactive_mode')}")
+    print(f"  {t('test_name')}: {session_name}")
+    print(f"  {t('test_url')}: {url}")
+    print(f"  {t('recording_size')}: {vp_w} x {vp_h}")
     print("=" * 60 + "\n")
 
     recorder = TestRecorder(session_name)
@@ -140,21 +142,22 @@ async def run_interactive_recorder(
 
     # 自動生成報告 (Markdown + HTML)
     if recorder.session_id:
-        print("\n📄 正在生成測試報告...")
-        md_path = generate_markdown_report(recorder.session_id)
-        print(f"  Markdown 報告: {md_path}")
+        print(f"\n📄 {t('generating_report')}")
+        md_path = generate_markdown_report(recorder.session_id, lang=args_lang)
+        print(f"  {t('markdown_report')}: {md_path}")
 
-        html_path = generate_html_report(recorder.session_id)
-        print(f"  HTML 驗收測試計畫: {html_path}")
+        html_path = generate_html_report(recorder.session_id, lang=args_lang)
+        print(f"  {t('html_report')}: {html_path}")
 
     return recorder.session_id
 
 
 async def run_script_recorder(
     script_path: str,
-    session_name: str = "測試會話",
+    session_name: str = "Test Session",
     viewport_width: int = None,
     viewport_height: int = None,
+    lang: str = None,
 ):
     """
     腳本模式：從 JSON 腳本自動執行測試步驟
@@ -163,10 +166,10 @@ async def run_script_recorder(
     vp_h = viewport_height or config.VIEWPORT_HEIGHT
 
     print("\n" + "=" * 60)
-    print(f"  腳本錄製模式")
-    print(f"  Session: {session_name}")
-    print(f"  腳本: {script_path}")
-    print(f"  錄製尺寸: {vp_w} x {vp_h}")
+    print(f"  {t('script_mode')}")
+    print(f"  {t('test_name')}: {session_name}")
+    print(f"  Script: {script_path}")
+    print(f"  {t('recording_size')}: {vp_w} x {vp_h}")
     print("=" * 60 + "\n")
 
     recorder = TestRecorder(session_name)
@@ -194,56 +197,60 @@ async def run_script_recorder(
 
     # 自動生成報告 (Markdown + HTML)
     if recorder.session_id:
-        print("\n📄 正在生成測試報告...")
-        md_path = generate_markdown_report(recorder.session_id)
-        print(f"  Markdown 報告: {md_path}")
+        print(f"\n📄 {t('generating_report')}")
+        md_path = generate_markdown_report(recorder.session_id, lang=lang)
+        print(f"  {t('markdown_report')}: {md_path}")
 
-        html_path = generate_html_report(recorder.session_id)
-        print(f"  HTML 驗收測試計畫: {html_path}")
+        html_path = generate_html_report(recorder.session_id, lang=lang)
+        print(f"  {t('html_report')}: {html_path}")
 
     return recorder.session_id
 
 
-def generate_report(session_id: int, fmt: str = "markdown"):
+def generate_report(session_id: int, fmt: str = "markdown", lang: str = None):
     """生成測試報告"""
     if fmt == "html":
-        output_path = generate_html_report(session_id)
+        output_path = generate_html_report(session_id, lang=lang)
     else:
-        output_path = generate_markdown_report(session_id)
-    print(f"報告已生成：{output_path}")
+        output_path = generate_markdown_report(session_id, lang=lang)
+    print(f"{t('footer')}: {output_path}")
 
 
 def main():
+    # 初始化 i18n 語言
+    if config.LANGUAGE in ("zh", "en"):
+        set_lang(config.LANGUAGE)
+
     parser = argparse.ArgumentParser(
-        description="自動化驗收與測試文檔平台",
+        description="Test Docs Platform - Automated Test Documentation Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-使用範例:
-  # 初始化數據庫
+Examples:
+  # Initialize database
   python main.py --init-db
 
-  # 列出所有測試會話
+  # List all sessions
   python main.py --list
 
-  # 互動錄製模式（預設 HD 尺寸）
-  python main.py --interactive "https://example.com" --session-name "登入測試"
+  # Interactive recording mode
+  python main.py --interactive "https://example.com" --session-name "My Test"
 
-  # 互動錄製模式 + 選擇尺寸預設
+  # Interactive recording + viewport preset
   python main.py --interactive "https://example.com" --dimensions FHD
 
-  # 互動錄製模式 + 自訂尺寸
-  python main.py --interactive "https://example.com" --width 1920 --height 1080
+  # Script auto execution mode
+  python main.py --script scripts/login_test.json --session-name "Login Test"
 
-  # 腳本自動執行模式
-  python main.py --script scripts/login_test.json --session-name "登入測試"
-
-  # 生成 Markdown 報告
+  # Generate Markdown report
   python main.py --report 1
 
-  # 生成 HTML 驗收測試計畫報告
+  # Generate HTML report
   python main.py --report-html 1
 
-可用尺寸預設:
+  # Language: --lang en (English) or --lang zh (Chinese)
+  python main.py --report 1 --lang en
+
+Available viewport presets:
   HD     - 1280 x 720
   FHD    - 1920 x 1080
   Laptop - 1366 x 768
@@ -251,29 +258,31 @@ def main():
   Mobile - 375 x 812
         """
     )
-    parser.add_argument("--init-db", action="store_true", help="初始化數據庫")
-    parser.add_argument("--list", action="store_true", help="列出所有測試會話")
+    parser.add_argument("--init-db", action="store_true", help="Initialize database")
+    parser.add_argument("--list", action="store_true", help="List all test sessions")
     parser.add_argument("--interactive", type=str, metavar="URL",
-                        help="互動錄製模式：打開瀏覽器，人工操作時自動記錄（提供 URL）")
+                        help="Interactive mode: open browser and record user actions (provide URL)")
     parser.add_argument("--script", type=str, metavar="SCRIPT.json",
-                        help="腳本執行模式：從 JSON 檔案讀取測試步驟自動執行")
+                        help="Script mode: load JSON test steps and execute automatically")
     parser.add_argument("--record", type=str, metavar="URL",
-                        help="[舊版] 簡單錄製模式（需要手動呼叫 API）")
+                        help="[Legacy] Simple recording mode (requires manual API calls)")
     parser.add_argument("--report", type=int, metavar="SESSION_ID",
-                        help="生成指定 session 的 Markdown 報告")
+                        help="Generate Markdown report for session")
     parser.add_argument("--report-html", type=int, metavar="SESSION_ID",
-                        help="生成指定 session 的 HTML 驗收測試計畫報告")
-    parser.add_argument("--session-name", type=str, default="測試會話",
-                        help="Session 名稱（預設：測試會話）")
+                        help="Generate HTML acceptance test plan for session")
+    parser.add_argument("--session-name", type=str, default="Test Session",
+                        help="Session name (default: Test Session)")
+    parser.add_argument("--lang", type=str, choices=["zh", "en"], default=None,
+                        help="Report language (zh=Chinese, en=English, default: config.LANGUAGE)")
 
     # Dimensions 參數
     parser.add_argument("--dimensions", type=str, metavar="PRESET",
                         choices=["HD", "FHD", "Laptop", "Tablet", "Mobile"],
-                        help="錄製區域尺寸預設 (HD/FHD/Laptop/Tablet/Mobile)")
+                        help="Viewport size preset (HD/FHD/Laptop/Tablet/Mobile)")
     parser.add_argument("--width", type=int, metavar="WIDTH",
-                        help="錄製區域寬度（像素）")
+                        help="Viewport width (pixels)")
     parser.add_argument("--height", type=int, metavar="HEIGHT",
-                        help="錄製區域高度（像素）")
+                        help="Viewport height (pixels)")
 
     args = parser.parse_args()
 
@@ -282,10 +291,14 @@ def main():
         args.width, args.height, args.dimensions
     )
 
+    # 設定語言 (CLI 參數優先)
+    if args.lang and args.lang in ("zh", "en"):
+        set_lang(args.lang)
+
     # 初始化數據庫
     if args.init_db:
         db_path = init_db()
-        print(f"數據庫已初始化：{db_path}")
+        print(f"{t('db_initialized')}: {db_path}")
         return
 
     # 列出會話
@@ -297,11 +310,12 @@ def main():
     if args.interactive:
         init_db()  # 確保數據庫存在
         if args.dimensions or args.width:
-            print(f"🖥️  使用錄製尺寸: {dim_label}")
+            print(f"🖥️  {t('recording_size')}: {dim_label}")
         asyncio.run(run_interactive_recorder(
             args.interactive, args.session_name,
             viewport_width=vp_width,
             viewport_height=vp_height,
+            lang=args.lang,
         ))
         return
 
@@ -309,11 +323,12 @@ def main():
     if args.script:
         init_db()
         if args.dimensions or args.width:
-            print(f"🖥️  使用錄製尺寸: {dim_label}")
+            print(f"🖥️  {t('recording_size')}: {dim_label}")
         asyncio.run(run_script_recorder(
             args.script, args.session_name,
             viewport_width=vp_width,
             viewport_height=vp_height,
+            lang=args.lang,
         ))
         return
 
@@ -336,12 +351,12 @@ def main():
 
     # 生成 Markdown 報告
     if args.report:
-        generate_report(args.report, fmt="markdown")
+        generate_report(args.report, fmt="markdown", lang=args.lang)
         return
 
     # 生成 HTML 報告
     if args.__dict__.get("report_html"):
-        generate_report(args.__dict__["report_html"], fmt="html")
+        generate_report(args.__dict__["report_html"], fmt="html", lang=args.lang)
         return
 
     # 默認顯示幫助
