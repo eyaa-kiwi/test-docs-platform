@@ -40,4 +40,4 @@ VIEWPORT_PRESETS = {
 }
 
 # 報告語言 (zh = 繁體中文, en = English)
-LANGUAGE = os.getenv("TDP_LANGUAGE", "zh")
+LANGUAGE = os.getenv("TDP_LANGUAGE", "en")

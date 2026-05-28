@@ -567,23 +567,28 @@ def generate_html_report(session_id: int, output_path: str = None, lang: str = N
     # === STEPS TABLE ===
     steps_rows = ""
     for i, action in enumerate(actions, 1):
-        if len(action) >= 11:
+        if len(action) >= 12:
+            action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type, element_id = action
+        elif len(action) >= 11:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type = action
+            element_id = ""
         else:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
-            page_title, page_url, element_name, element_type = "", "", "", ""
+            page_title, page_url, element_name, element_type, element_id = "", "", "", "", ""
 
         time_short = timestamp[11:19] if len(timestamp) > 19 else timestamp
         action_label = _action_type(action_type)
         selector_display = f'<code class="selector-code">{selector or "-"}</code>' if selector else "-"
         value_display = f'<code class="selector-code">{value or "-"}</code>' if value else "-"
         screenshot_link = f'<a href="{screenshot_path}" target="_blank">📷</a>' if screenshot_path and os.path.exists(screenshot_path) else "-"
+        elem_id_display = f'<code class="selector-code">{element_id}</code>' if element_id else "-"
 
         steps_rows += f"""
         <tr>
             <td><span class="step-number">{i}</span></td>
             <td>{time_short}</td>
             <td><span class="action-badge {action_type}">{_get_action_icon(action_type)} {action_label}</span></td>
+            <td>{elem_id_display}</td>
             <td>{selector_display}</td>
             <td>{value_display}</td>
             <td>{screenshot_link}</td>
@@ -598,6 +603,7 @@ def generate_html_report(session_id: int, output_path: str = None, lang: str = N
                     <th>{t('step_col')}</th>
                     <th>{t('time_col')}</th>
                     <th>{t('action_col')}</th>
+                    <th>{t('element_id')}</th>
                     <th>{t('selector_col')}</th>
                     <th>{t('value_col')}</th>
                     <th>{t('screenshot_col')}</th>
@@ -613,7 +619,9 @@ def generate_html_report(session_id: int, output_path: str = None, lang: str = N
     # === SCREENSHOTS ===
     screenshots_html = ""
     for i, action in enumerate(actions, 1):
-        if len(action) >= 11:
+        if len(action) >= 12:
+            action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type, element_id = action
+        elif len(action) >= 11:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type = action
         else:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
@@ -646,7 +654,9 @@ def generate_html_report(session_id: int, output_path: str = None, lang: str = N
     # === ACCEPTANCE CRITERIA ===
     criteria_rows = ""
     for i, action in enumerate(actions, 1):
-        if len(action) >= 11:
+        if len(action) >= 12:
+            action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type, element_id = action
+        elif len(action) >= 11:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type = action
         else:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action

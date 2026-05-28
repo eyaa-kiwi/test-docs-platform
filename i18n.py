@@ -40,6 +40,7 @@ _ZH = {
     "time": "時間",
     "action_type": "操作類型",
     "page_title_col": "頁面名稱",
+    "element_id": "Element ID",
     "element_name": "元素名稱",
     "element_type": "元素類型",
     "target_selector": "目標選擇器",
@@ -107,6 +108,7 @@ _ZH = {
     "generating_report": "正在生成測試報告...",
     "markdown_report": "Markdown 報告",
     "html_report": "HTML 驗收測試計畫",
+    "excel_report": "Excel 報告",
     "test_complete": "測試腳本執行完成",
     "recording_complete": "錄製結束",
     "script_loaded": "載入測試腳本",
@@ -156,6 +158,15 @@ _ZH = {
     "test_overview_id": "ID",
     "test_overview_name": "名稱",
     "test_overview_url": "目標 URL",
+
+    # Recorder purpose strings
+    "purpose_initial_page": "初始頁面載入: {title}",
+    "purpose_navigate": "頁面導航",
+    "purpose_click": "點擊: {name}",
+    "purpose_click_field": " (欄位名: {name})",
+    "purpose_click_image_btn": " [圖片按鈕]",
+    "purpose_input": "在 '{name}' 輸入: '{value}'",
+    "purpose_scroll": "滾動至 Y={value}",
 }
 
 
@@ -177,6 +188,7 @@ _EN = {
     "time": "Time",
     "action_type": "Action Type",
     "page_title_col": "Page Title",
+    "element_id": "Element ID",
     "element_name": "Element Name",
     "element_type": "Element Type",
     "target_selector": "Target Selector",
@@ -244,6 +256,7 @@ _EN = {
     "generating_report": "Generating test report...",
     "markdown_report": "Markdown Report",
     "html_report": "HTML Acceptance Test Plan",
+    "excel_report": "Excel Report",
     "test_complete": "Test script completed",
     "recording_complete": "Recording stopped",
     "script_loaded": "Loaded test script",
@@ -293,6 +306,15 @@ _EN = {
     "test_overview_id": "ID",
     "test_overview_name": "Name",
     "test_overview_url": "Target URL",
+
+    # Recorder purpose strings
+    "purpose_initial_page": "Initial page loaded: {title}",
+    "purpose_navigate": "Page navigation",
+    "purpose_click": "Click: {name}",
+    "purpose_click_field": " (field: {name})",
+    "purpose_click_image_btn": " [Image button]",
+    "purpose_input": "Input '{value}' in '{name}'",
+    "purpose_scroll": "Scroll to Y={value}",
 }
 
 TRANSLATIONS = {"zh": _ZH, "en": _EN}

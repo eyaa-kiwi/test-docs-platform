@@ -27,6 +27,18 @@ def init_db() -> str:
             )
         """)
 
+        # 只加 video_path 欄位（如果不存在 - 兼容舊數據庫）
+        cursor.execute("PRAGMA table_info(sessions)")
+        session_columns = [col[1] for col in cursor.fetchall()]
+        if "video_path" not in session_columns:
+            cursor.execute("ALTER TABLE sessions ADD COLUMN video_path TEXT DEFAULT ''")
+
+        # 只加 element_id 欄位（如果不存在）
+        cursor.execute("PRAGMA table_info(actions)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if "element_id" not in columns:
+            cursor.execute("ALTER TABLE actions ADD COLUMN element_id TEXT")
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS actions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,6 +53,7 @@ def init_db() -> str:
                 page_url TEXT,
                 element_name TEXT,
                 element_type TEXT,
+                element_id TEXT DEFAULT '',
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             )
         """)
@@ -83,6 +96,20 @@ def end_session(session_id: int) -> bool:
         return cursor.rowcount > 0
 
 
+def update_session_video(session_id: int, video_path: str) -> bool:
+    """更新 session 的影片路徑"""
+    try:
+        with sqlite3.connect(config.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE sessions SET video_path = ? WHERE id = ?
+            """, (video_path, session_id))
+            return cursor.rowcount > 0
+    except sqlite3.Error as e:
+        print(f"  ⚠️ DB error: {e}")
+        return False
+
+
 def record_action(
     session_id: int,
     action_type: str,
@@ -94,6 +121,7 @@ def record_action(
     page_url: Optional[str] = None,
     element_name: Optional[str] = None,
     element_type: Optional[str] = None,
+    element_id: Optional[str] = None,
 ) -> bool:
     """記錄單次操作"""
     # 輸入驗證
@@ -113,6 +141,8 @@ def record_action(
         element_name = element_name[:500]
     if element_type and len(element_type) > 100:
         element_type = element_type[:100]
+    if element_id and len(element_id) > 200:
+        element_id = element_id[:200]
 
     try:
         with sqlite3.connect(config.DB_PATH) as conn:
@@ -120,8 +150,8 @@ def record_action(
             cursor.execute("""
                 INSERT INTO actions
                 (session_id, timestamp, action_type, selector, value, screenshot_path, purpose,
-                 page_title, page_url, element_name, element_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 page_title, page_url, element_name, element_type, element_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 session_id,
                 datetime.now().isoformat(),
@@ -134,9 +164,11 @@ def record_action(
                 page_url,
                 element_name,
                 element_type,
+                element_id or '',
             ))
             return True
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        print(f"  ⚠️ DB error: {e}")
         return False
 
 
@@ -145,7 +177,7 @@ def get_session(session_id: int) -> Optional[tuple]:
     with sqlite3.connect(config.DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, name, url, started_at, ended_at, status
+            SELECT id, name, url, started_at, ended_at, status, video_path
             FROM sessions
             WHERE id = ?
         """, (session_id,))
@@ -158,7 +190,7 @@ def get_session_actions(session_id: int) -> list:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT id, timestamp, action_type, selector, value, screenshot_path, purpose,
-                   page_title, page_url, element_name, element_type
+                   page_title, page_url, element_name, element_type, element_id
             FROM actions
             WHERE session_id = ?
             ORDER BY timestamp ASC
@@ -171,7 +203,7 @@ def get_all_sessions() -> list:
     with sqlite3.connect(config.DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, name, url, started_at, ended_at, status
+            SELECT id, name, url, started_at, ended_at, status, video_path
             FROM sessions
             ORDER BY started_at DESC
         """)

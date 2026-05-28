@@ -77,16 +77,19 @@ def generate_markdown_report(session_id: int, output_path: str = None, lang: str
     if not actions:
         lines.append(f"> {t('no_actions')}")
     else:
-        lines.append(f"| {t('step_num')} | {t('time')} | {t('action_type')} | {t('page_title_col')} | {t('element_name')} | {t('element_type')} | {t('target_selector')} | {t('input_value')} | {t('screenshot')} | {t('purpose')} |")
-        lines.append("|------|------|----------|----------|----------|----------|------------|--------|------|------|")
+        lines.append(f"| {t('step_num')} | {t('time')} | {t('action_type')} | {t('page_title_col')} | {t('element_id')} | {t('element_name')} | {t('element_type')} | {t('target_selector')} | {t('input_value')} | {t('screenshot')} | {t('purpose')} |")
+        lines.append("|------|------|----------|----------|------|----------|----------|------------|--------|------|------|")
 
         for i, action in enumerate(actions, 1):
-            # 兼容 7 欄位或 11 欄位
-            if len(action) >= 11:
+            # 兼容 7 / 11 / 12 欄位
+            if len(action) >= 12:
+                action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type, element_id = action
+            elif len(action) >= 11:
                 action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type = action
+                element_id = ""
             else:
                 action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
-                page_title, page_url, element_name, element_type = "", "", "", ""
+                page_title, page_url, element_name, element_type, element_id = "", "", "", "", ""
 
             zh_action = _action_type(action_type)
             screenshot_mark = "📷" if screenshot_path and os.path.exists(screenshot_path) else ""
@@ -95,8 +98,9 @@ def generate_markdown_report(session_id: int, output_path: str = None, lang: str
             # 截斷長文本
             page_display = (page_title[:30] + "...") if len(page_title) > 30 else (page_title or '-')
             elem_display = (element_name[:25] + "...") if len(element_name) > 25 else (element_name or '-')
+            elem_id_display = element_id if element_id else '-'
 
-            lines.append(f"| {i} | {timestamp} | {zh_action} | {page_display} | {elem_display} | {element_type or '-'} | `{selector or '-'}` | `{value or '-'}` | {screenshot_mark} | {purpose_text} |")
+            lines.append(f"| {i} | {timestamp} | {zh_action} | {page_display} | `{elem_id_display}` | {elem_display} | {element_type or '-'} | `{selector or '-'}` | `{value or '-'}` | {screenshot_mark} | {purpose_text} |")
 
         lines.append("")
 
@@ -105,15 +109,18 @@ def generate_markdown_report(session_id: int, output_path: str = None, lang: str
         lines.append("")
 
         for i, action in enumerate(actions, 1):
-            # 兼容舊版 7 欄位與新版 11 欄位
-            if len(action) >= 11:
+            if len(action) >= 12:
+                action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type, element_id = action
+            elif len(action) >= 11:
                 action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type = action
             else:
                 action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action
             if screenshot_path and os.path.exists(screenshot_path):
+                # 使用相對於 reports/ 資料夾的路徑
+                rel_path = os.path.relpath(screenshot_path, config.REPORTS_DIR).replace("\\", "/")
                 lines.append(f"### {t('step')} {i} - {_action_type(action_type)}")
                 lines.append("")
-                lines.append(f"![{action_type}]({screenshot_path})")
+                lines.append(f"![{action_type}]({rel_path})")
                 lines.append("")
 
     # 驗證標準
@@ -123,8 +130,9 @@ def generate_markdown_report(session_id: int, output_path: str = None, lang: str
     lines.append("|------|----------|----------|---------|")
 
     for i, action in enumerate(actions, 1):
-        # 兼容 7 欄位或 11 欄位
-        if len(action) >= 11:
+        if len(action) >= 12:
+            action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type, element_id = action
+        elif len(action) >= 11:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose, page_title, page_url, element_name, element_type = action
         else:
             action_id, timestamp, action_type, selector, value, screenshot_path, purpose = action

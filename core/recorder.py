@@ -20,6 +20,7 @@ from typing import Optional, List, Dict
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext
 from core import db_manager
 import config
+from i18n import t
 
 # stop_recording_styles
 _STOP_BUTTON_STYLES = """
@@ -97,11 +98,21 @@ class TestRecorder:
         print(f"\n🖥️  錄製尺寸: {vp_width} x {vp_height}")
 
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=headless)
+        # 使用本機已安裝的 Chrome 瀏覽器（因網路限制無法從 CDN 下載）
+        self.browser = await self.playwright.chromium.launch(
+            headless=headless,
+            channel="chrome",
+            executable_path="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            args=["--ignore-certificate-errors", "--disable-web-security"],
+        )
+
+        # 建立錄影目錄
+        self.video_dir = os.path.join(config.STORAGE_DIR, "videos")
+        os.makedirs(self.video_dir, exist_ok=True)
 
         self.context = await self.browser.new_context(
             viewport={"width": vp_width, "height": vp_height},
-            record_video_dir=os.path.join(config.STORAGE_DIR, "videos"),
+            record_video_dir=self.video_dir,
             record_video_size={"width": vp_width, "height": vp_height},
         )
 
@@ -110,20 +121,21 @@ class TestRecorder:
         # 創建 session
         self.session_id = db_manager.create_session(self.session_name, url)
 
-        # 如果是互動模式，設置事件監聽器
+        # 如果是互動模式，先暴露停止函數（必須在導航前，這樣函數會在所有頁面生效）
         if interactive:
-            await self._setup_interactive_listeners()
+            await self.page.expose_function("__tdp_request_stop__", self._handle_stop_from_js)
 
-        # 導航到目標 URL
-        await self.page.goto(url, wait_until="networkidle")
+        # 導航到目標 URL（使用 domcontentloaded 避免某些頁面一直 network polling）
+        await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
         print(f"✅ 已導航至：{url}")
 
-        # 在頁面載入後注入停止按鈕（互動模式）
+        # 如果是互動模式，在導航完成後設置事件監聽器和停止按鈕
         if interactive:
+            await self._setup_interactive_listeners()
             await self._inject_stop_button()
-            # 每次導航後重新注入停止按鈕
+            # 每次導航後重新注入
             self.page.on("framenavigated", lambda frame: asyncio.ensure_future(
-                self._re_inject_stop_button(frame)
+                self._on_frame_navigated(frame)
             ))
 
         # 啟動時記錄初始頁面狀態（強制截圖）
@@ -139,7 +151,7 @@ class TestRecorder:
             print(f"\n📄 初始頁面: \"{page_title}\"")
             print(f"   URL: {current_url}")
             # 強制截圖記錄初始狀態
-            await self.record_action("navigate", current_url, purpose=f"初始頁面載入: {page_title}")
+            await self.record_action("navigate", current_url, purpose=t('purpose_initial_page').format(title=page_title))
         except Exception as e:
             print(f"  ⚠️ 記錄初始狀態時出錯: {e}")
 
@@ -164,33 +176,45 @@ class TestRecorder:
                         "to": new_url,
                     }
                     self._recorded_events.append(event_data)
-                    await self.record_action("navigate", new_url, purpose="頁面導航")
+                    await self.record_action("navigate", new_url, purpose=t('purpose_navigate'))
                     self._last_url = new_url
 
         # Playwright 原生事件
         page.on("framenavigated", on_navigation)
 
         # 在頁面中注入 JavaScript 來捕獲事件
-        await page.evaluate("""() => {
+        await self._inject_js_listeners()
+
+        # 用 polling 方式取得 JavaScript 端收集的事件
+        self._stop_polling = False
+        self._poll_task = asyncio.ensure_future(self._poll_js_events())
+
+        print("🔍 互動錄製模式已啟動 — 所有交互事件將自動記錄")
+        print("   監聽事件：click, input, scroll, keydown, navigation")
+        print("   點擊右下角「停止錄製」按鈕或按 Esc 鍵結束錄製\n")
+
+    async def _inject_js_listeners(self):
+        """在頁面中注入 JavaScript 事件監聽器（導航後需重新注入）"""
+        await self.page.evaluate("""() => {
+            // 避免重複注入
+            if (window.__tdp_listeners_injected__) return;
+            window.__tdp_listeners_injected__ = true;
+
             // 輔助函數：獲取元素標籤名稱/欄位名稱
             function getElementLabel(el) {
                 const tag = el.tagName.toLowerCase();
                 
-                // 增加對 alt 和 button value 的抓取
                 let name = el.getAttribute('aria-label') || 
                            el.getAttribute('title') || 
                            el.getAttribute('placeholder') || 
-                           el.getAttribute('alt'); // 針對 <input type="image"> 抓取 "登入"
+                           el.getAttribute('alt');
                            
-                // 如果是按鈕類型，嘗試抓取 value
                 if (!name && (tag === 'input' && ['button', 'submit', 'reset'].includes(el.type))) {
                     name = el.getAttribute('value');
                 }
                 
-                // 最後才嘗試使用 name 屬性
                 if (!name) name = el.getAttribute('name') || '';
 
-                // 如果是 input/textarea/select，嘗試找關聯的 <label>
                 if (!name && (tag === 'input' || tag === 'textarea' || tag === 'select')) {
                     const id = el.id;
                     if (id) {
@@ -203,11 +227,9 @@ class TestRecorder:
                     }
                 }
 
-                // button 使用文本內容
                 if (!name && (tag === 'button' || el.getAttribute('role') === 'button')) {
                     name = (el.textContent || '').trim().slice(0, 80);
                 }
-                // a 標籤使用文本內容
                 if (!name && tag === 'a') {
                     name = (el.textContent || '').trim().slice(0, 80);
                 }
@@ -215,10 +237,9 @@ class TestRecorder:
                 return name || '';
             }
 
-            // 輔助函數：獲取元素類型
             function getElementType(el) {
                 const tag = el.tagName.toLowerCase();
-                if (tag === 'input') return el.type || 'text'; // 會抓到 'image', 'text' 等
+                if (tag === 'input') return el.type || 'text';
                 if (tag === 'button' || el.getAttribute('role') === 'button') return 'button';
                 if (tag === 'a') return 'link';
                 if (tag === 'select') return 'select';
@@ -226,14 +247,13 @@ class TestRecorder:
                 return tag;
             }
 
-            // 提取更豐富的 DOM 屬性供 Python 端組合
             function extractElementData(el) {
                 return {
                     tag: el.tagName.toLowerCase(),
                     id: el.id || '',
-                    name: el.name || el.getAttribute('name') || '', // 抓取 txtLoginName, btnLogin
-                    alt: el.getAttribute('alt') || '',              // 抓取 "登入"
-                    inputType: el.type || '',                       // 抓取 "text", "image"
+                    name: el.name || el.getAttribute('name') || '',
+                    alt: el.getAttribute('alt') || '',
+                    inputType: el.type || '',
                     classList: Array.from(el.classList).join('.'),
                     text: (el.textContent || '').trim().slice(0, 80),
                     element_name: getElementLabel(el),
@@ -241,15 +261,15 @@ class TestRecorder:
                 };
             }
 
-            // 點擊監聽
+            // 點擊監聽（排除停止按鈕）
             document.addEventListener('click', (e) => {
                 const el = e.target;
+                if (el.closest && el.closest('#__tdp_stop_btn__')) return;
                 window.__tdp_last_click__ = JSON.stringify(extractElementData(el));
             }, true);
 
             // 輸入監聽
-            window.__tdp_input_counter__ = 0;
-            window.__tdp_last_input__ = '';
+            window.__tdp_input_counter__ = window.__tdp_input_counter__ || 0;
             document.addEventListener('input', (e) => {
                 const el = e.target;
                 if (['input', 'textarea', 'select'].includes(el.tagName.toLowerCase())) {
@@ -266,12 +286,13 @@ class TestRecorder:
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') {
                     window.__tdp_esc_pressed__ = true;
+                    if (window.__tdp_request_stop__) window.__tdp_request_stop__();
                 }
             }, true);
 
-            // 滾動監聽（使用 throttle 減少事件量）
+            // 滾動監聽
             let scrollTimer = null;
-            window.__tdp_last_scroll__ = 0;
+            window.__tdp_last_scroll__ = window.__tdp_last_scroll__ || 0;
             document.addEventListener('scroll', () => {
                 if (scrollTimer) clearTimeout(scrollTimer);
                 scrollTimer = setTimeout(() => {
@@ -280,14 +301,6 @@ class TestRecorder:
             }, {passive: true});
         }""")
 
-        # 用 polling 方式取得 JavaScript 端收集的事件
-        self._stop_polling = False
-        self._poll_task = asyncio.ensure_future(self._poll_js_events())
-
-        print("🔍 互動錄製模式已啟動 — 所有交互事件將自動記錄")
-        print("   監聽事件：click, input, scroll, keydown, navigation")
-        print("   點擊右下角「停止錄製」按鈕或按 Esc 鍵結束錄製\n")
-
     async def _poll_js_events(self):
         """定期從頁面 JavaScript 獲取事件"""
         last_click = ""
@@ -295,6 +308,24 @@ class TestRecorder:
         last_scroll = 0
 
         while not self._stop_polling:
+            # ============ 優先檢查停止信號（獨立 try/except 確保不被跳過） ============
+            try:
+                stop_clicked = await self.page.evaluate(
+                    "() => window.__tdp_stop_clicked__ || false"
+                )
+                if stop_clicked:
+                    print("\n⏹️  停止按鈕被點擊，停止錄製...")
+                    self._stop_requested = True
+                    break
+
+                esc_pressed = await self.page.evaluate("() => window.__tdp_esc_pressed__ || false")
+                if esc_pressed:
+                    print("\n⏹️  偵測到 Esc 鍵，停止錄製...")
+                    self._stop_requested = True
+                    break
+            except Exception:
+                pass
+
             try:
                 # ============ 處理點擊事件 ============
                 click_data = await self.page.evaluate("() => window.__tdp_last_click__ || ''")
@@ -324,18 +355,19 @@ class TestRecorder:
                         
                         # 生成更精確的點擊描述
                         display_name = info.get('element_name') or info.get('alt') or info.get('name') or info.get('text') or selector
-                        detail_desc = f"點擊: {display_name}"
+                        detail_desc = t('purpose_click').format(name=display_name)
                         if info.get('name') and info.get('name') != display_name:
-                            detail_desc += f" (欄位名: {info['name']})"
+                            detail_desc += t('purpose_click_field').format(name=info['name'])
                         if info.get('inputType') == 'image':
-                            detail_desc += " [圖片按鈕]"
+                            detail_desc += t('purpose_click_image_btn')
 
                         element_info = {
                             "element_name": info.get("element_name", ""),
                             "element_type": info.get("element_type", ""),
                         }
+                        element_id = info.get("id", "") or ""
                         
-                        await self.record_action("click", selector, purpose=detail_desc, element_info=element_info)
+                        await self.record_action("click", selector, purpose=detail_desc, element_info=element_info, element_id=element_id)
                     except Exception:
                         pass
 
@@ -370,13 +402,14 @@ class TestRecorder:
                             if value:
                                 # 生成更精確的輸入描述
                                 display_name = info.get("element_name") or info.get("name") or selector
-                                detail_desc = f"在 '{display_name}' 輸入: '{value}'"
+                                detail_desc = t('purpose_input').format(name=display_name, value=value)
                                 
                                 element_info = {
                                     "element_name": info.get("element_name", ""),
                                     "element_type": info.get("element_type", ""),
                                 }
-                                await self.record_action("type", selector, value, purpose=detail_desc, element_info=element_info)
+                                element_id = info.get("id", "") or ""
+                        await self.record_action("type", selector, value, purpose=detail_desc, element_info=element_info, element_id=element_id)
                     except Exception:
                         pass
 
@@ -390,23 +423,7 @@ class TestRecorder:
                         "event": "scroll",
                         "scrollY": scroll_data,
                     })
-                    await self.record_action("scroll", purpose=f"滾動至 Y={scroll_data}")
-
-                # ============ 檢查 Escape 鍵（停止信號） ============
-                esc_pressed = await self.page.evaluate("() => window.__tdp_esc_pressed__ || false")
-                if esc_pressed:
-                    print("\n⏹️  偵測到 Esc 鍵，停止錄製...")
-                    self._stop_requested = True
-                    break
-
-                # ============ 檢查停止按鈕 ============
-                stop_clicked = await self.page.evaluate(
-                    "() => window.__tdp_stop_clicked__ || false"
-                )
-                if stop_clicked:
-                    print("\n⏹️  停止按鈕被點擊，停止錄製...")
-                    self._stop_requested = True
-                    break
+                    await self.record_action("scroll", purpose=t('purpose_scroll').format(value=scroll_data))
 
             except Exception:
                 pass
@@ -414,39 +431,82 @@ class TestRecorder:
             await asyncio.sleep(0.5)
 
     async def _inject_stop_button(self):
-        """在頁面右下角注入停止錄製按鈕"""
-        html_content = _STOP_BUTTON_HTML.format(styles=_STOP_BUTTON_STYLES.strip())
+        """在頁面右下角注入停止錄製按鈕（使用 Shadow DOM 隔離，避免被網站 JS 攔截）"""
+        await self.page.evaluate("""() => {
+            // 移除舊的停止按鈕（如果存在）
+            const old = document.getElementById('__tdp_stop_host__');
+            if (old) old.remove();
 
-        await self.page.evaluate(f"""() => {{
-            // 創建停止按鈕容器
-            const container = document.createElement('div');
-            container.innerHTML = `{html_content}`;
-            container.style.cssText = `{_STOP_BUTTON_STYLES.strip().replace(chr(10), ' ').replace(chr(13), '')}`;
+            // 創建宿主元素
+            const host = document.createElement('div');
+            host.id = '__tdp_stop_host__';
+            host.style.cssText = 'position:fixed; bottom:20px; right:20px; z-index:2147483647; pointer-events:auto;';
+            document.documentElement.appendChild(host);
 
-            // 添加到 document body
-            document.body.appendChild(container.firstElementChild);
+            // 使用 Shadow DOM 完全隔離
+            const shadow = host.attachShadow({ mode: 'closed' });
 
-            const btn = document.getElementById('__tdp_stop_btn__');
-            if (btn) {{
-                // hover 效果
-                btn.addEventListener('mouseenter', () => {{
-                    btn.style.cssText += `{_STOP_BUTTON_HOVER_STYLES.strip()}`;
-                }});
-                btn.addEventListener('mouseleave', () => {{
-                    btn.style.cssText = `{_STOP_BUTTON_STYLES.strip()}`;
-                }});
+            // 注入樣式和按鈕
+            shadow.innerHTML = `
+                <style>
+                    #tdp-stop-btn {
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        padding: 12px 20px;
+                        background: linear-gradient(135deg, #ff416c, #ff4b2b);
+                        color: #fff;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        font-size: 15px;
+                        font-weight: 600;
+                        border: none;
+                        border-radius: 28px;
+                        cursor: pointer;
+                        box-shadow: 0 4px 16px rgba(255, 65, 108, 0.45);
+                        transition: transform 0.15s, box-shadow 0.15s;
+                        user-select: none;
+                        pointer-events: auto;
+                    }
+                    #tdp-stop-btn:hover {
+                        transform: scale(1.06);
+                        box-shadow: 0 6px 24px rgba(255, 65, 108, 0.6);
+                    }
+                    #tdp-stop-btn:active {
+                        transform: scale(0.96);
+                    }
+                    #tdp-stop-btn.stopping {
+                        pointer-events: none;
+                        opacity: 0.5;
+                    }
+                </style>
+                <div id="tdp-stop-btn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="white" style="flex-shrink:0;">
+                        <rect x="4" y="4" width="16" height="16" rx="3" fill="white"/>
+                    </svg>
+                    <span>停止錄製</span>
+                </div>
+            `;
 
-                // 點擊事件
-                btn.addEventListener('click', () => {{
-                    window.__tdp_stop_clicked__ = true;
-                    btn.style.pointerEvents = 'none';
-                    btn.style.opacity = '0.5';
-                    btn.querySelector('span').textContent = '停止中...';
-                }});
-
-                console.log('[TDP] 停止錄製按鈕已注入');
-            }}
-        }}""")
+            const btn = shadow.getElementById('tdp-stop-btn');
+            btn.addEventListener('pointerdown', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                btn.classList.add('stopping');
+                btn.querySelector('span').textContent = '停止中...';
+                window.__tdp_stop_clicked__ = true;
+                if (window.__tdp_request_stop__) {
+                    window.__tdp_request_stop__();
+                }
+            });
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                window.__tdp_stop_clicked__ = true;
+                if (window.__tdp_request_stop__) {
+                    window.__tdp_request_stop__();
+                }
+            });
+        }""")
 
         print("🔴 停止錄製按鈕已注入（頁面右下角）")
 
@@ -470,11 +530,22 @@ class TestRecorder:
         except Exception:
             return None
 
-    async def _re_inject_stop_button(self, frame):
-        """頁面導航後重新注入停止按鈕"""
+    def _on_console_message(self, msg):
+        """監聽 console 訊息，用於可靠的停止偵測"""
+        if msg.text == "__TDP_STOP__":
+            self._stop_requested = True
+
+    def _handle_stop_from_js(self):
+        """從 JS expose_function 回調，直接設定停止標誌"""
+        print("\n⏹️  停止按鈕被點擊，停止錄製...")
+        self._stop_requested = True
+
+    async def _on_frame_navigated(self, frame):
+        """頁面導航後重新注入停止按鈕和事件監聽器"""
         if frame == self.page.main_frame:
             try:
                 await asyncio.sleep(1)  # 等待頁面載入
+                await self._inject_js_listeners()
                 await self._inject_stop_button()
             except Exception:
                 pass
@@ -536,6 +607,7 @@ class TestRecorder:
         purpose: str = None,
         force_screenshot: bool = True,
         element_info: dict = None,
+        element_id: str = None,
     ):
         """記錄操作（強制截圖）"""
         # 每個 Action 強制截圖
@@ -564,6 +636,7 @@ class TestRecorder:
             page_url=page_url,
             element_name=element_name,
             element_type=element_type,
+            element_id=element_id,
         )
         timestamp = datetime.now().strftime("%H:%M:%S")
         action_zh = self._action_type_to_zh(action_type)
@@ -644,7 +717,7 @@ class TestRecorder:
 
     async def navigate(self, url: str):
         """導航到新 URL"""
-        await self.page.goto(url, wait_until="networkidle")
+        await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
         await self.record_action("navigate", url)
 
     async def assert_text(self, selector: str, expected: str):
@@ -713,6 +786,44 @@ class TestRecorder:
         """獲取所有記錄的事件"""
         return list(self._recorded_events)
 
+    async def _save_video(self) -> str:
+        """儲存 Playwright 錄製的影片，回傳影片檔案路徑或空字串"""
+        try:
+            # 先取得 video 原始路徑（在 context close 之前）
+            original_video_path = None
+            if self.context.video:
+                try:
+                    original_video_path = await self.context.video.path()
+                except Exception:
+                    pass
+
+            # 關閉 context（這會 flush video 到磁碟）
+            try:
+                await self.context.close()
+            except Exception:
+                pass
+
+            await asyncio.sleep(0.5)  # 等待 flush 完成
+
+            if original_video_path and os.path.exists(original_video_path):
+                ext = os.path.splitext(original_video_path)[1] or ".webm"
+                dest_filename = f"session_{self.session_id}{ext}"
+                dest_path = os.path.join(self.video_dir, dest_filename)
+
+                import shutil
+                try:
+                    shutil.copy2(original_video_path, dest_path)
+                    print(f"  🎬 影片已保存: {dest_path}")
+                    return dest_path
+                except Exception as e:
+                    print(f"  ⚠️ 複製影片失敗: {e}")
+                    return original_video_path
+
+            return ""
+        except Exception as e:
+            print(f"  ⚠️ 儲存影片時出錯: {e}")
+            return ""
+
     async def stop(self):
         """停止錄製"""
         # 停止 polling
@@ -721,6 +832,13 @@ class TestRecorder:
         # 記錄結束前的完整事件清單
         print(f"\n📊 總共記錄 {len(self._recorded_events)} 個交互事件")
         print(f"   截圖數量: {self.screenshot_count}")
+
+        # 儲存影片（在關閉 context/browser 前）
+        video_path = ""
+        if hasattr(self, 'context') and self.context:
+            video_path = await self._save_video()
+            if video_path:
+                db_manager.update_session_video(self.session_id, video_path)
 
         db_manager.end_session(self.session_id)
 

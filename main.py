@@ -11,7 +11,7 @@ Main Entry Point
   python main.py --list
 
   # 互動模式：打開瀏覽器，人工操作自動記錄
-  python main.py --interactive "https://example.com" --session-name "我的測試"
+  python main.py --interactive "https://login.dev.ehr.gov.hk"  --session-name "我的測試"
 
   # 互動模式 + 指定錄製尺寸
   python main.py --interactive "https://example.com" --dimensions FHD
@@ -140,14 +140,21 @@ async def run_interactive_recorder(
 
     await recorder.stop()
 
-    # 自動生成報告 (Markdown + HTML)
+    # 自動生成報告 (Markdown + HTML + Excel)
     if recorder.session_id:
         print(f"\n📄 {t('generating_report')}")
-        md_path = generate_markdown_report(recorder.session_id, lang=args_lang)
+        md_path = generate_markdown_report(recorder.session_id, lang=lang)
         print(f"  {t('markdown_report')}: {md_path}")
 
-        html_path = generate_html_report(recorder.session_id, lang=args_lang)
+        html_path = generate_html_report(recorder.session_id, lang=lang)
         print(f"  {t('html_report')}: {html_path}")
+
+        try:
+            from generator.excel_gen import generate_excel_report
+            excel_path = generate_excel_report(recorder.session_id, lang=lang)
+            print(f"  {t('excel_report')}: {excel_path}")
+        except ImportError:
+            print(f"  ⚠️ Excel report skipped (install openpyxl: pip install openpyxl)")
 
     return recorder.session_id
 
@@ -195,7 +202,7 @@ async def run_script_recorder(
 
     await recorder.stop()
 
-    # 自動生成報告 (Markdown + HTML)
+    # 自動生成報告 (Markdown + HTML + Excel)
     if recorder.session_id:
         print(f"\n📄 {t('generating_report')}")
         md_path = generate_markdown_report(recorder.session_id, lang=lang)
@@ -203,6 +210,13 @@ async def run_script_recorder(
 
         html_path = generate_html_report(recorder.session_id, lang=lang)
         print(f"  {t('html_report')}: {html_path}")
+
+        try:
+            from generator.excel_gen import generate_excel_report
+            excel_path = generate_excel_report(recorder.session_id, lang=lang)
+            print(f"  {t('excel_report')}: {excel_path}")
+        except ImportError:
+            print(f"  ⚠️ Excel report skipped (install openpyxl: pip install openpyxl)")
 
     return recorder.session_id
 
@@ -270,6 +284,8 @@ Available viewport presets:
                         help="Generate Markdown report for session")
     parser.add_argument("--report-html", type=int, metavar="SESSION_ID",
                         help="Generate HTML acceptance test plan for session")
+    parser.add_argument("--report-excel", type=int, metavar="SESSION_ID",
+                        help="Generate Excel (.xlsx) test report for session")
     parser.add_argument("--session-name", type=str, default="Test Session",
                         help="Session name (default: Test Session)")
     parser.add_argument("--lang", type=str, choices=["zh", "en"], default=None,
@@ -357,6 +373,12 @@ Available viewport presets:
     # 生成 HTML 報告
     if args.__dict__.get("report_html"):
         generate_report(args.__dict__["report_html"], fmt="html", lang=args.lang)
+        return
+
+    # 生成 Excel 報告
+    if args.__dict__.get("report_excel"):
+        from generator.excel_gen import generate_excel_report
+        generate_excel_report(args.__dict__["report_excel"], lang=args.lang)
         return
 
     # 默認顯示幫助
